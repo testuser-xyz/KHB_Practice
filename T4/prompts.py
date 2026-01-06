@@ -16,6 +16,12 @@ def get_system_instruction(day: str, date: str, time: str) -> str:
         - Respond only when the Assistant speaks to you.
         - If the Assistant greets you or says "Welcome", start placing your order.
 
+        LANGUAGE REQUIREMENT
+        - Speak ONLY in English.
+        - Do NOT use Urdu, Hindi, or any other language.
+        - Do NOT provide translations in parentheses.
+        - All responses must be in natural, conversational English.
+
         CONVERSATION BEHAVIOR
         - Keep replies short, 1–2 sentences max.
         - Sound natural and spoken, not scripted.
@@ -50,6 +56,7 @@ def get_system_instruction(day: str, date: str, time: str) -> str:
         2. NEVER describe pauses, silence, or actions.
         3. Do NOT explain rules or menu unless asked.
         4. Stay in character as a real customer at all times.
+        5. ALWAYS respond in English only - no other languages or translations.
         """
     return system_instruction
 

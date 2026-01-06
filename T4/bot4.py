@@ -4,10 +4,10 @@ from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.groq.stt import GroqSTTService
 from pipecat.observers.loggers.llm_log_observer import LLMLogObserver
-from pipecat.observers.loggers.transcription_log_observer import TranscriptionLogObserver
+# from pipecat.observers.loggers.transcription_log_observer import TranscriptionLogObserver
 from pipecat.observers.turn_tracking_observer import TurnTrackingObserver
 from pipecat.observers.loggers.user_bot_latency_log_observer import UserBotLatencyLogObserver as LatencyObserver
-from pipecat.observers.loggers.debug_log_observer import DebugLogObserver
+# from pipecat.observers.loggers.debug_log_observer import DebugLogObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -26,6 +26,8 @@ from datetime import datetime
 import asyncio
 from prompts import get_system_instruction
 from audio_handlers import AudioBufferHandlers
+from observers import JsonLatencyObserver
+from observers import JsonTranscriptionObserver
 
 load_dotenv()
 
@@ -54,7 +56,11 @@ async def bot(runner_args: RunnerArguments):
 
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id=os.getenv("CARTESIA_VOICE")
+        voice_id=os.getenv("CARTESIA_VOICE"),
+        params=CartesiaTTSService.InputParams(
+            speed="normal",  # Options: slowest, slow, normal, fast, fastest
+            emotion=["positivity:high"]
+        )
     )
 
     tz = pytz.timezone("Asia/Karachi")
@@ -73,14 +79,21 @@ async def bot(runner_args: RunnerArguments):
     audio_dir = os.path.join(os.path.dirname(__file__), "audio_recordings", session_timestamp)
     os.makedirs(audio_dir, exist_ok=True)
 
+    latency_log_path = os.path.join(audio_dir, "latency_logs.json")
+    transcript_log_path = os.path.join(audio_dir, "transcription_logs.json")
+
     audio_handlers = AudioBufferHandlers(audio_dir)
 
-
+    # Initialize AudioBufferProcessor
+    # - sample_rate: Uses transport's sample rate (auto-detected)
+    # - num_channels: 1 for mono (user and bot audio mixed in proper sequence)
+    # - buffer_size: 0 means events only trigger when recording stops
+    # - enable_turn_audio: True to capture per-turn audio
     audiobuffer = AudioBufferProcessor(
-        sample_rate=None,
-        num_channels=1,
-        buffer_size=0,
-        enable_turn_audio=False
+        sample_rate=None,  # Auto-detect from transport
+        num_channels=1,     # Mono: user and bot mixed together in temporal sequence
+        buffer_size=0,      # Trigger events only on stop
+        enable_turn_audio=True  # Enable per-turn audio events
     )
 
     audio_handlers.setup_handlers(audiobuffer)
@@ -115,10 +128,11 @@ async def bot(runner_args: RunnerArguments):
             allow_interruptions=True,
             observers=[
                 LLMLogObserver(),
-                TranscriptionLogObserver(),
+                JsonTranscriptionObserver(output_filepath=transcript_log_path),
                 TurnTrackingObserver(),
-                LatencyObserver(),
-                DebugLogObserver()
+                JsonLatencyObserver(output_filepath=latency_log_path),
+                # LatencyObserver(),
+                # DebugLogObserver()
             ]
         )
     )
