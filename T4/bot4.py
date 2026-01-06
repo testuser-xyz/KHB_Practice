@@ -23,16 +23,17 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.frames.frames import LLMRunFrame, StartInterruptionFrame, UserStoppedSpeakingFrame
 import pytz
 from datetime import datetime
-from prompts import get_system_instruction, get_greeting_prompt
+import asyncio
+from prompts import get_system_instruction
 from audio_handlers import AudioBufferHandlers
 
-
 load_dotenv()
+
 async def bot(runner_args: RunnerArguments):
     transport = SmallWebRTCTransport(
         webrtc_connection=runner_args.webrtc_connection,
         params=TransportParams(
-            audio_in_enabledd=True,
+            audio_in_enabled=True,
             audio_out_enabled=True,
             vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
             turn_analyzer=LocalSmartTurnAnalyzerV3(),
@@ -40,23 +41,26 @@ async def bot(runner_args: RunnerArguments):
     )
 
     stt = GroqSTTService(
-                    api_key=os.getenv("GROQ_API_KEY"),
-                    model="whisper-large-v3",
-                    audio_passthrough=True #for audio buffering
-                    )
+        api_key=os.getenv("GROQ_API_KEY"),
+        model="whisper-large-v3",
+        audio_passthrough=True
+    )
+
+    # [CRITICAL FIX] Use InputParams to fix the AttributeError crash
     llm = GroqLLMService(
-                    api_key=os.getenv("GROQ_API_KEY"),
-                    model="llama-3.1-8b-instant"
-                    )
+        api_key=os.getenv("GROQ_API_KEY"),
+        model="llama-3.1-8b-instant"
+    )
+
     tts = CartesiaTTSService(
-                    api_key=os.getenv("CARTESIA_API_KEY"),
-                    voice_id=os.getenv("CARTESIA_VOICE")
-                    )
-    
-    tz=pytz.timezone("Asia/Karachi")
-    current_time=datetime.now(tz)
+        api_key=os.getenv("CARTESIA_API_KEY"),
+        voice_id=os.getenv("CARTESIA_VOICE")
+    )
+
+    tz = pytz.timezone("Asia/Karachi")
+    current_time = datetime.now(tz)
     day = current_time.strftime("%A")
-    date =current_time.strftime("%Y-%m-%d")
+    date = current_time.strftime("%Y-%m-%d")
     time = current_time.strftime("%I:%M %p")
 
     system_instruction = get_system_instruction(day, date, time)
@@ -94,19 +98,10 @@ async def bot(runner_args: RunnerArguments):
 
 
     @transport.event_handler('on_client_connected')
-    async def handle_client_connected(transport: SmallWebRTCTransport,  client):
-        print("Client connected:")
+    async def handle_client_connected(transport: SmallWebRTCTransport, client):
+        print("Client connected. Listening for user input...")
+        # Start recording immediately upon connection
         await audiobuffer.start_recording()
-        if current_time.hour < 12:
-            time_context = "It's morning time."
-        elif 12 <= current_time.hour < 17:
-            time_context = "It's afternoon."
-        else:
-            time_context = "It's evening."
-        
-        greeting_prompt = get_greeting_prompt(time_context)
-        messages.append({"role": "system", "content": greeting_prompt})
-        await task.queue_frames([LLMRunFrame()])
 
     @transport.event_handler('on_client_disconnected')
     async def handle_client_disconnected(transport: SmallWebRTCTransport, client):
@@ -123,7 +118,7 @@ async def bot(runner_args: RunnerArguments):
                 TranscriptionLogObserver(),
                 TurnTrackingObserver(),
                 LatencyObserver(),
-                DebugLogObserver(frame_types=[StartInterruptionFrame, UserStoppedSpeakingFrame])
+                DebugLogObserver()
             ]
         )
     )
