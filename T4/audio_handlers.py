@@ -36,9 +36,9 @@ class AudioBufferHandlers:
             print(f"\n📼 [AUDIO] Merged audio captured | Sample rate: {sample_rate}Hz | Channels: {num_channels}")
             print(f"   Size: {len(audio)} bytes")
             
-            # Save merged audio (mono: user and bot mixed in temporal sequence)
+            # Save merged audio (stereo: user on one channel, bot on the other)
             if len(audio) > 0:
-                filepath = os.path.join(self.audio_dir, "full_conversation_mono.wav")
+                filepath = os.path.join(self.audio_dir, "full_conversation_stereo.wav")
                 with wave.open(filepath, 'wb') as wf:
                     wf.setnchannels(num_channels)
                     wf.setsampwidth(2)  # 16-bit audio
@@ -56,22 +56,22 @@ class AudioBufferHandlers:
             print(f"\n🎤 [TRACK AUDIO] Separate tracks captured | Sample rate: {sample_rate}Hz")
             print(f"   User audio: {len(user_audio)} bytes | Bot audio: {len(bot_audio)} bytes")
             
-            # Save user track (mono)
+            # Save user track (stereo)
             if len(user_audio) > 0:
                 user_filepath = os.path.join(self.audio_dir, "user_track_full.wav")
                 with wave.open(user_filepath, 'wb') as wf:
-                    wf.setnchannels(1)  # Mono
+                    wf.setnchannels(2)  # Stereo
                     wf.setsampwidth(2)  # 16-bit
                     wf.setframerate(sample_rate)
                     wf.writeframes(user_audio)
                 user_duration = len(user_audio) / (sample_rate * 2)
                 print(f"   👤 User track saved: {user_filepath} ({user_duration:.2f}s)")
             
-            # Save bot track (mono)
+            # Save bot track (2 stereo)
             if len(bot_audio) > 0:
                 bot_filepath = os.path.join(self.audio_dir, "bot_track_full.wav")
                 with wave.open(bot_filepath, 'wb') as wf:
-                    wf.setnchannels(1)  # Mono
+                    wf.setnchannels(2)  # Stereo
                     wf.setsampwidth(2)  # 16-bit
                     wf.setframerate(sample_rate)
                     wf.writeframes(bot_audio)

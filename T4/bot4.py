@@ -48,7 +48,6 @@ async def bot(runner_args: RunnerArguments):
         audio_passthrough=True
     )
 
-    # [CRITICAL FIX] Use InputParams to fix the AttributeError crash
     llm = GroqLLMService(
         api_key=os.getenv("GROQ_API_KEY"),
         model="llama-3.1-8b-instant"
@@ -58,7 +57,7 @@ async def bot(runner_args: RunnerArguments):
         api_key=os.getenv("CARTESIA_API_KEY"),
         voice_id=os.getenv("CARTESIA_VOICE"),
         params=CartesiaTTSService.InputParams(
-            speed="normal",  # Options: slowest, slow, normal, fast, fastest
+            speed="normal",
             emotion=["positivity:high"]
         )
     )
@@ -91,7 +90,7 @@ async def bot(runner_args: RunnerArguments):
     # - enable_turn_audio: True to capture per-turn audio
     audiobuffer = AudioBufferProcessor(
         sample_rate=None,  # Auto-detect from transport
-        num_channels=1,     # Mono: user and bot mixed together in temporal sequence
+        num_channels=2,     # Stereo: user on one channel, bot on the other
         buffer_size=0,      # Trigger events only on stop
         enable_turn_audio=True  # Enable per-turn audio events
     )

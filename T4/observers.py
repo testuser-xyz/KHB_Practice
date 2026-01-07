@@ -3,7 +3,14 @@ import os
 from datetime import datetime
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 # We import TranscriptionFrame to ensure we capture the EXACT text
-from pipecat.frames.frames import TranscriptionFrame, TextFrame, Frame, LLMFullResponseStartFrame, LLMFullResponseEndFrame
+from pipecat.frames.frames import (
+    TranscriptionFrame,
+    TextFrame,
+    Frame,
+    LLMFullResponseStartFrame,
+    LLMFullResponseEndFrame, 
+    UserStoppedSpeakingFrame, 
+    BotStartedSpeakingFrame)
 from pipecat.observers.loggers.transcription_log_observer import TranscriptionLogObserver
 from pipecat.observers.loggers.user_bot_latency_log_observer import UserBotLatencyLogObserver
 from pipecat.observers.base_observer import BaseObserver, FramePushed
@@ -70,6 +77,10 @@ class JsonTranscriptionObserver(BaseObserver):
         super().__init__()
         self.output_filepath = output_filepath
         self.bot_text_buffer = []
+        self.pending_bot_text = ""  # Store completed text here
+        
+        # State variables for timing synchronization
+        self.last_user_stop_time = None
         
         os.makedirs(os.path.dirname(os.path.abspath(output_filepath)), exist_ok=True)
         
@@ -86,15 +97,18 @@ class JsonTranscriptionObserver(BaseObserver):
         except Exception:
             pass
 
-    def _append_log(self, role, text):
-        if not text.strip(): return
+    def _append_log(self, role, text, timestamp=None):
+        if not text or not text.strip(): return
+        
+        # Use provided timestamp if available, otherwise current time
+        ts = timestamp if timestamp else datetime.now().isoformat()
         
         entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": ts,
             "role": role, 
             "text": text.strip()
         }
-        print(f"📝 [LOG] {role.upper()}: {text}") 
+        print(f"📝 [LOG] {role.upper()}: {text} (Time: {ts})") 
         self.log_data["conversation"].append(entry)
         self._save_json()
 
@@ -117,14 +131,21 @@ class JsonTranscriptionObserver(BaseObserver):
 
         src_name = str(source) if source else ""
 
-        # --- LOGIC WITH SOURCE FILTERING ---
+        # --- LOGIC 1: CAPTURE USER STOP TIME ---
+        if isinstance(frame, UserStoppedSpeakingFrame):
+            # 1. Capture the exact moment the user stopped speaking (Matches Latency Start)
+            self.last_user_stop_time = datetime.now().isoformat()
 
-        if isinstance(frame, TranscriptionFrame):
+        # --- LOGIC 2: LOG USER TRANSCRIPT WITH CORRECT TIME ---
+        elif isinstance(frame, TranscriptionFrame):
             if "STT" in src_name:
-                self._append_log("user", frame.text)
+                # 2. Use the captured timestamp if we have it
+                use_time = self.last_user_stop_time
+                self._append_log("user", frame.text, timestamp=use_time)
+                self.last_user_stop_time = None  # Reset
 
+        # --- LOGIC 3: BUFFER BOT TEXT ---
         elif "LLM" in src_name and "Aggregator" not in src_name:
-            
             if isinstance(frame, LLMFullResponseStartFrame):
                 self.bot_text_buffer = []
 
@@ -132,8 +153,16 @@ class JsonTranscriptionObserver(BaseObserver):
                 self.bot_text_buffer.append(frame.text)
 
             elif isinstance(frame, LLMFullResponseEndFrame):
-                full_sentence = "".join(self.bot_text_buffer)
-                self._append_log("assistant", full_sentence)
+                # 3. Text is ready, but DON'T log yet. Wait for audio start.
+                self.pending_bot_text = "".join(self.bot_text_buffer)
                 self.bot_text_buffer = []
+
+        # --- LOGIC 4: LOG BOT START TIME ---
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            # 4. Audio is starting. This is the exact "Latency End" time.
+            # Log the pending text now, using the current time.
+            if self.pending_bot_text:
+                self._append_log("assistant", self.pending_bot_text, timestamp=datetime.now().isoformat())
+                self.pending_bot_text = ""  # Reset
 
         return
