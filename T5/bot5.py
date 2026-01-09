@@ -24,7 +24,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 
 from prompts import get_system_instruction
-from observers import SpeechEventObserver
+from observers import LatencyObserver
 
 load_dotenv()
 
@@ -62,7 +62,7 @@ async def bot(runner_args: RunnerArguments):
     context_aggregator = LLMContextAggregatorPair(context)
 
     session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    audio_dir = os.path.join(os.path.dirname(__file__), "audio_recordings", session_timestamp)
+    audio_dir = os.path.join(os.path.dirname(__file__), "Recordings", session_timestamp)
     os.makedirs(audio_dir, exist_ok=True)
 
     # Create AudioBufferProcessor
@@ -113,11 +113,12 @@ async def bot(runner_args: RunnerArguments):
         await audiobuffer.stop_recording()
         print("🛑 Recording stopped")
     
+    observer=LatencyObserver(filename=os.path.join(audio_dir, "conversation_metrics.json"))
     task = PipelineTask(
         pipeline=pipeline,
         params=PipelineParams(
             allow_interruptions=True,
-            observers=[SpeechEventObserver()],
+            observers=[observer],
         )
     )
 
