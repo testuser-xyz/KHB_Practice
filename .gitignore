@@ -1,6 +1,8 @@
 # Audio recordings
 audio_recordings/
 **/audio_recordings/
+Recordings/
+**/Recordings/
 
 # Python cache
 __pycache__/
