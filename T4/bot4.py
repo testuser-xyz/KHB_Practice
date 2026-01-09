@@ -26,8 +26,7 @@ from datetime import datetime
 import asyncio
 from prompts import get_system_instruction
 from audio_handlers import AudioBufferHandlers
-from observers import JsonLatencyObserver
-from observers import JsonTranscriptionObserver
+from observers import JsonLatencyObserver, JsonTranscriptionObserver, UnifiedTurnLogger
 
 load_dotenv()
 
@@ -78,8 +77,12 @@ async def bot(runner_args: RunnerArguments):
     audio_dir = os.path.join(os.path.dirname(__file__), "audio_recordings", session_timestamp)
     os.makedirs(audio_dir, exist_ok=True)
 
+    # Separate logs for latency and transcripts
     latency_log_path = os.path.join(audio_dir, "latency_logs.json")
     transcript_log_path = os.path.join(audio_dir, "transcription_logs.json")
+    
+    # Unified log for both latency and transcripts
+    unified_log_path = os.path.join(audio_dir, "unified_turn_logs.json")
 
     audio_handlers = AudioBufferHandlers(audio_dir)
 
@@ -128,8 +131,9 @@ async def bot(runner_args: RunnerArguments):
             observers=[
                 LLMLogObserver(),
                 JsonTranscriptionObserver(output_filepath=transcript_log_path),
-                TurnTrackingObserver(),
                 JsonLatencyObserver(output_filepath=latency_log_path),
+                UnifiedTurnLogger(output_filepath=unified_log_path),
+                TurnTrackingObserver(),
                 # LatencyObserver(),
                 # DebugLogObserver()
             ]
