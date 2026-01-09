@@ -1,52 +1,76 @@
 import json
+import os
+from datetime import datetime
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
-    StartInterruptionFrame
+    StartInterruptionFrame,
+    TranscriptionFrame,
+    TextFrame,
+    LLMFullResponseStartFrame,
+    LLMFullResponseEndFrame
 )
 
-class LatencyObserver(BaseObserver):
+class SessionObserver(BaseObserver):
     """
-    Observer that tracks conversation turns, calculates latency, 
-    and saves the metrics to a JSON file.
+    Observer that tracks conversation turns, latencies, AND transcripts.
+    Saves a complete JSON log of the conversation structure.
     """
     
     def __init__(self, filename="conversation_metrics.json"):
         super().__init__()
         
-        # --- NEW: File Saving Setup ---
+        # File Setup
         self.filename = filename
-        self.turn_history = [] # Stores all completed turns
+        self.turn_history = []
         
-        # --- Existing Logic Setup ---
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+        
+        # Turn State
         self.turn_count = 1
         self.last_bot_stop_time = None 
+        
+        # Transcript Buffers
+        self.bot_text_buffer = [] 
+        
+        # Initialize First Turn
         self.current_turn = self._create_empty_turn(self.turn_count)
 
     def _create_empty_turn(self, turn_id):
         return {
             "turn_id": turn_id,
-            "latency_bot_to_user": None,
+            "latency_from_last_turn": None,
             "user_start": None,
             "user_stop": None,
+            "user_transcript": "",  # <--- NEW
             "bot_start": None,
             "bot_stop": None,
+            "bot_transcript": "",   # <--- NEW
             "interrupted": False,
             "interruption_time": None
         }
 
     async def on_push_frame(self, data: FramePushed):
+        # Convert nanoseconds to seconds
         time_sec = data.timestamp / 1_000_000_000
         frame = data.frame
+        source = str(data.source) # Get source name (e.g., "LLM", "STT")
 
-        # 1. USER STARTS (Start of new turn)
+        # =========================================================
+        # 1. USER SPEECH & TRANSCRIPTION
+        # =========================================================
+        
+        # User Starts Speaking -> NEW TURN
         if isinstance(frame, UserStartedSpeakingFrame):
+            # If previous turn was done, reset
             if self.current_turn["bot_stop"] is not None or self.current_turn["interrupted"]:
                 self.turn_count += 1
                 self.current_turn = self._create_empty_turn(self.turn_count)
+                self.bot_text_buffer = [] # Clear bot buffer for new turn
 
             if self.current_turn["user_start"] is None:
                 self.current_turn["user_start"] = time_sec
@@ -54,55 +78,90 @@ class LatencyObserver(BaseObserver):
                 # Calculate Latency
                 if self.last_bot_stop_time is not None:
                     latency = time_sec - self.last_bot_stop_time
-                    self.current_turn["latency_bot_to_user"] = round(latency, 4)
+                    self.current_turn["latency_from_last_turn"] = round(latency, 4)
                 else:
-                    self.current_turn["latency_bot_to_user"] = 0.0
+                    self.current_turn["latency_from_last_turn"] = 0.0
 
                 print(f"\n🟢 [TURN {self.turn_count} OPENED]")
 
-        # 2. USER STOPS
+        # User Stops Speaking
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self.current_turn["user_stop"] = time_sec
 
-        # 3. BOT STARTS
+        # User Transcript (STT)
+        elif isinstance(frame, TranscriptionFrame):
+            # We assume this frame belongs to the currently open turn
+            self.current_turn["user_transcript"] = frame.text
+
+        # =========================================================
+        # 2. BOT TEXT GENERATION (LLM)
+        # =========================================================
+        
+        # Start of LLM Response -> Clear Buffer
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            self.bot_text_buffer = []
+
+        # LLM Text Chunk -> Append to Buffer
+        elif isinstance(frame, TextFrame) and "LLM" in source:
+            self.bot_text_buffer.append(frame.text)
+
+        # End of LLM Response -> Save Buffer to Turn
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            full_text = "".join(self.bot_text_buffer)
+            self.current_turn["bot_transcript"] = full_text
+
+        # =========================================================
+        # 3. BOT AUDIO & TURN COMPLETION
+        # =========================================================
+
+        # Bot Starts Speaking (Audio)
         elif isinstance(frame, BotStartedSpeakingFrame):
             self.current_turn["bot_start"] = time_sec
+            # Fallback: If we didn't get an EndFrame yet, update transcript from buffer now
+            if not self.current_turn["bot_transcript"] and self.bot_text_buffer:
+                self.current_turn["bot_transcript"] = "".join(self.bot_text_buffer)
 
-        # 4. BOT STOPS (Normal End)
+        # Bot Stops Speaking (Normal End)
         elif isinstance(frame, BotStoppedSpeakingFrame):
             if not self.current_turn["interrupted"] and self.current_turn["bot_stop"] is None:
                 self.current_turn["bot_stop"] = time_sec
                 self.last_bot_stop_time = time_sec
+                
+                # Finalize transcript in case more text came in
+                if self.bot_text_buffer:
+                     self.current_turn["bot_transcript"] = "".join(self.bot_text_buffer)
+                
                 self._finalize_turn(reason="Normal Completion")
 
-        # 5. INTERRUPTION (Abrupt End)
+        # Interruption (Abrupt End)
         elif isinstance(frame, StartInterruptionFrame):
             if not self.current_turn["interrupted"]:
                 self.current_turn["interruption_time"] = time_sec
                 self.current_turn["interrupted"] = True
                 self.last_bot_stop_time = time_sec
+                
+                # Capture whatever text the bot managed to generate/speak
+                if self.bot_text_buffer:
+                     self.current_turn["bot_transcript"] = "".join(self.bot_text_buffer)
+                
                 self._finalize_turn(reason="Interrupted by User")
 
     def _finalize_turn(self, reason):
         """Prints summary and saves to file."""
-        # 1. Print to Console (Existing Logic)
         print(80 * "-")
         print(f"🏁 TURN {self.turn_count} SUMMARY | Status: {reason}")
-        print(f"⏱️  Latency: {self.current_turn['latency_bot_to_user']}s")
-        print(json.dumps(self.current_turn, indent=2))
+        print(f"🗣️  User: {self.current_turn['user_transcript']}")
+        print(f"🤖 Bot:  {self.current_turn['bot_transcript']}")
+        print(f"⏱️  Latency: {self.current_turn['latency_from_last_turn']}s")
         print(80 * "-")
         
-        # 2. Save to JSON File (New Feature)
         self._save_to_json()
 
     def _save_to_json(self):
         """Appends current turn to history and writes to file."""
-        # Add a copy of the current turn to history
         self.turn_history.append(self.current_turn.copy())
-        
         try:
-            with open(self.filename, "w") as f:
-                json.dump(self.turn_history, f, indent=2)
-            print(f"💾 Metrics saved to {self.filename}")
+            with open(self.filename, "w", encoding='utf-8') as f:
+                json.dump(self.turn_history, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"⚠️ Error saving metrics: {e}")

@@ -24,7 +24,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 
 from prompts import get_system_instruction
-from observers import LatencyObserver
+from observers import SessionObserver as LatencyObserver
 
 load_dotenv()
 
