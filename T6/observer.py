@@ -35,6 +35,7 @@ class SessionObserver(BaseObserver):
         self.last_bot_stop_time = None 
         
         # Transcript Buffers
+        self.user_text_buffer = []  # <--- Accumulate user transcripts
         self.bot_text_buffer = [] 
         
         # Initialize First Turn
@@ -70,10 +71,12 @@ class SessionObserver(BaseObserver):
             if self.current_turn["bot_stop"] is not None or self.current_turn["interrupted"]:
                 self.turn_count += 1
                 self.current_turn = self._create_empty_turn(self.turn_count)
-                self.bot_text_buffer = [] # Clear bot buffer for new turn
+                self.user_text_buffer = []  # Clear user buffer for new turn
+                self.bot_text_buffer = []  # Clear bot buffer for new turn
 
             if self.current_turn["user_start"] is None:
                 self.current_turn["user_start"] = time_sec
+                self.user_text_buffer = []  # Reset buffer at the start of speaking
                 
                 # Calculate Latency
                 if self.last_bot_stop_time is not None:
@@ -84,14 +87,17 @@ class SessionObserver(BaseObserver):
 
                 print(f"\n🟢 [TURN {self.turn_count} OPENED]")
 
+        # User Transcript (STT) -> Accumulate chunks
+        elif isinstance(frame, TranscriptionFrame):
+            if frame.text and frame.text.strip():
+                self.user_text_buffer.append(frame.text.strip())
+                self.current_turn["user_transcript"] = " ".join(self.user_text_buffer)
+
         # User Stops Speaking
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self.current_turn["user_stop"] = time_sec
-
-        # User Transcript (STT)
-        elif isinstance(frame, TranscriptionFrame):
-            # We assume this frame belongs to the currently open turn
-            self.current_turn["user_transcript"] = frame.text
+            if self.user_text_buffer:
+                self.current_turn["user_transcript"] = " ".join(self.user_text_buffer)
 
         # =========================================================
         # 2. BOT TEXT GENERATION (LLM)
