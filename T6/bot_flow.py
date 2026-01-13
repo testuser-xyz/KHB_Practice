@@ -17,78 +17,85 @@ from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 from pipecat_flows import FlowManager, FlowsFunctionSchema, NodeConfig
-from pipecat_flows.types import FlowResult
 from observer import SessionObserver as LatencyObserver
 
 load_dotenv()
-
 
 # Node 1: Greeting & Small Talk
 # Node 2: Menu Browsing
 # Node 3: Placing Order
 # Node 4: Closing/Completing Order
 
-#function handlers
+# function handlers
 
-async def browse_menu_handler(args, flow_manager: FlowManager) -> tuple[FlowResult, NodeConfig]:
+async def browse_menu_handler(args, flow_manager: FlowManager) -> tuple[str, NodeConfig]:
     # Handle transition to menu browsing
-    interest = args.get("interest", "")
+    interest = args.get("interest", "the general menu")
+    # Store interest in state for future nodes
+    flow_manager.state["last_interest"] = interest
     print(f"🍕 Transitioning to menu browsing. Interest: {interest}")
-    return {"interest": interest}, create_menu_browsing_node()
+    # Return a status message for the LLM and the next node object
+    return f"The user is interested in {interest}. Move to menu browsing.", create_menu_browsing_node()
 
 
-async def place_order_handler(args, flow_manager: FlowManager) -> tuple[FlowResult, NodeConfig]:
+async def place_order_handler(args, flow_manager: FlowManager) -> tuple[str, NodeConfig]:
     # Handle transition to ordering
     item = args.get("item", "")
-    print(f"📝 Transitioning to ordering. Item: {item}")
-    return {"item": item}, create_ordering_node()
+    # Maintain an order list in state
+    if "order_list" not in flow_manager.state:
+        flow_manager.state["order_list"] = []
+    
+    if item:
+        flow_manager.state["order_list"].append(item)
+        
+    print(f"📝 Transitioning to ordering. Item added: {item}")
+    return f"Added {item} to order. Transition to ordering node.", create_ordering_node()
 
 
-async def complete_order_handler(args, flow_manager: FlowManager) -> tuple[FlowResult, NodeConfig]:
+async def complete_order_handler(args, flow_manager: FlowManager) -> tuple[str, NodeConfig]:
     # Handle order completion
     ready = args.get("ready", True)
     print(f"✅ Completing order. Ready: {ready}")
-    return {"ready": ready}, create_closing_node()
+    # Final check of the state
+    order_summary = ", ".join(flow_manager.state.get("order_list", ["nothing yet"]))
+    return f"Order finalized: {order_summary}", create_closing_node()
 
-#nodes
+# nodes
 
 def create_greeting_node() -> NodeConfig:
     # Create the initial greeting node
     browse_menu_func = FlowsFunctionSchema(
         name="browse_menu",
-        description="Transition to browsing the menu when customer shows interest in menu options or asks about food items",
+        description="Call this AFTER server tells you menu options. Pass your food interest (pizza, burger, etc.)",
         required=[],
         handler=browse_menu_handler,
         properties={
             "interest": {
                 "type": "string",
-                "description": "What the customer is interested in (e.g., 'pizza', 'burger', 'specials')"
+                "description": "The type of food you're interested in (e.g., 'pizza', 'burgers', 'deals')"
             }
         }
     )
     
     return NodeConfig(
         name="greeting_node",
+        respond_immediately=False,
         role_messages=[
             {
                 "role": "system",
-                "content": """You are Zara, a friendly restaurant customer at Cheezeous (pizzas, burgers, fries).
-                                Speak naturally with contractions, keep responses short (1-3 sentences).
-
-                            **GREETING & SMALL TALK:**
-                            - Greet naturally: "Hi there!" or "Good evening!"
-                            - Make light small talk about the day or mood
-                            - Ask for suggestions or popular items
-                            - When ready to browse, transition by asking about menu items"""
+                "content": """You are Zara, a friendly customer at Cheezeous restaurant. 
+                             Speak naturally with contractions, keep responses short (1-3 sentences).
+                             Your persona is consistent throughout the session.
+                             You must ALWAYS use one of the available functions to progress the conversation."""
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """Greet the server warmly and engage in brief small talk."
-                                Do not call any function unless the user explicitly asks about menu items or recommendations;
-                                otherwise respond with text only. When the user asks to browse the menu or for recommendations,
-                                then use the browse_menu function to transition."""
+                "content": """Greet the server and ask what they have on the menu.
+                               WAIT for them to tell you the menu options (burgers, pizzas, etc.).
+                               ONLY AFTER they tell you what's available, call browse_menu with your interest.
+                               Example: Server says 'We have burgers and pizzas' -> You call browse_menu with interest='pizza'."""
             }
         ],
         functions=[browse_menu_func]
@@ -99,13 +106,13 @@ def create_menu_browsing_node() -> NodeConfig:
     """Create the menu browsing node."""
     place_order_func = FlowsFunctionSchema(
         name="place_order",
-        description="Transition to placing an order when customer has decided what to eat",
-        required=[],
+        description="Call this function when you decide what item to order. This transitions to the ordering phase.",
+        required=["item"],
         handler=place_order_handler,
         properties={
             "item": {
                 "type": "string",
-                "description": "The item(s) the customer wants to order"
+                "description": "The specific item you decided to order (e.g., 'chicken tikka pizza', 'cheeseburger')"
             }
         }
     )
@@ -115,11 +122,10 @@ def create_menu_browsing_node() -> NodeConfig:
         task_messages=[
             {
                 "role": "system",
-                "content": """You are Zara browsing the menu at Cheezeous. Keep responses short (1-3 sentences).
-
-                            - Ask about specials, ingredients, sizes, or prices
-                            - Show realistic indecision and ask for recommendations
-                            - When you've decided what to order, use the place_order function to proceed"""
+                "content": """Ask about ONE menu item (What's in the chicken tikka pizza? What sizes do you have?).
+                               After getting the answer, decide what you want.
+                               Then call the place_order function - do NOT just say it, actually invoke the function.
+                               The function call will handle the ordering, you just need to decide and call it."""
             }
         ],
         functions=[place_order_func]
@@ -130,13 +136,13 @@ def create_ordering_node() -> NodeConfig:
     """Create the ordering node."""
     complete_order_func = FlowsFunctionSchema(
         name="complete_order",
-        description="Transition to completing the order when customer is satisfied with their order",
+        description="Transition to completing the order when satisfied",
         required=[],
         handler=complete_order_handler,
         properties={
             "ready": {
                 "type": "boolean",
-                "description": "Whether the customer is ready to finalize"
+                "default": True
             }
         }
     )
@@ -146,12 +152,9 @@ def create_ordering_node() -> NodeConfig:
         task_messages=[
             {
                 "role": "system",
-                "content": """You are Zara placing your order at Cheezeous. Keep responses short (1-3 sentences).
-
-                            - Specify items clearly (e.g., "I'll take one Medium Chicken Tikka Pizza, please")
-                            - Answer questions about size, add-ons, or customization
-                            - Ask for extras or make changes naturally
-                            - When you're satisfied with your order, use the complete_order function to finalize"""
+                "content": """Confirm your order or ask about one add-on (drink, fries, size).
+                               After the server responds, confirm you're done.
+                               Then call the complete_order function to finalize everything."""
             }
         ],
         functions=[complete_order_func]
@@ -165,11 +168,8 @@ def create_closing_node() -> NodeConfig:
         task_messages=[
             {
                 "role": "system",
-                "content": """You are Zara finalizing your order at Cheezeous. Keep responses short (1-3 sentences).
-
-                            - Confirm your final order with the server
-                            - Ask about wait time or payment if needed
-                            - Thank the server and wrap up the conversation naturally"""
+                "content": """Finalize the conversation. Thank the server.
+                               Ask for the estimated wait time. Wrap up naturally."""
             }
         ],
         functions=[]
@@ -223,6 +223,7 @@ async def bot(runner_args: RunnerArguments):
         llm,
         tts,
         transport.output(),
+        context_aggregator.assistant(),
         audiobuffer,
     ])
 
@@ -243,40 +244,34 @@ async def bot(runner_args: RunnerArguments):
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        """Save audio when recording stops."""
+        """Save audio segments."""
         if len(audio) == 0:
             return
         
-        os.makedirs("Recordings", exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"Recordings/audio_{timestamp}.wav"
+        filename = os.path.join(audio_dir, f"audio_{timestamp}.wav")
         
         with wave.open(filename, "wb") as wf:
             wf.setnchannels(num_channels)
             wf.setsampwidth(2)
             wf.setframerate(sample_rate)
             wf.writeframes(audio)
-        
-        print(f"Audio saved: {filename}")
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
-        """Start recording and initialize flow when client connects."""
+        """Initialize flow when client connects."""
         await audiobuffer.start_recording()
-        print("Recording started")
         print("🌊 Initialized - Starting with greeting_node")
-        # Initialize the flow with the first node
+        # Initialize with the start node
         await flow_manager.initialize(create_greeting_node())
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
-        """Stop recording when client disconnects."""
+        """Clean up on disconnect."""
         await audiobuffer.stop_recording()
-        print("Recording stopped")
 
     runner = PipelineRunner(handle_sigint=True)
     await runner.run(task)
-
 
 if __name__ == "__main__":
     from pipecat.runner.run import main
