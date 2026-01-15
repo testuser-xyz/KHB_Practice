@@ -15,10 +15,8 @@ from pipecat.frames.frames import (
 )
 
 class SessionObserver(BaseObserver):
-    """
-    Observer that tracks conversation turns, latencies, AND transcripts.
-    Saves a complete JSON log of the conversation structure.
-    """
+    # Observer that tracks conversation turns, latencies, AND transcripts.
+    # Saves a complete JSON log of the conversation structure.
     
     def __init__(self, filename="conversation_metrics.json"):
         super().__init__()
@@ -35,6 +33,7 @@ class SessionObserver(BaseObserver):
         self.last_bot_stop_time = None 
         
         # Transcript Buffers
+        self.user_text_buffer = []
         self.bot_text_buffer = [] 
         
         # Initialize First Turn
@@ -46,10 +45,10 @@ class SessionObserver(BaseObserver):
             "latency_from_last_turn": None,
             "user_start": None,
             "user_stop": None,
-            "user_transcript": "",  # <--- NEW
+            "user_transcript": "",
             "bot_start": None,
             "bot_stop": None,
-            "bot_transcript": "",   # <--- NEW
+            "bot_transcript": "",
             "interrupted": False,
             "interruption_time": None
         }
@@ -60,9 +59,6 @@ class SessionObserver(BaseObserver):
         frame = data.frame
         source = str(data.source) # Get source name (e.g., "LLM", "STT")
 
-        # =========================================================
-        # 1. USER SPEECH & TRANSCRIPTION
-        # =========================================================
         
         # User Starts Speaking -> NEW TURN
         if isinstance(frame, UserStartedSpeakingFrame):
@@ -70,10 +66,12 @@ class SessionObserver(BaseObserver):
             if self.current_turn["bot_stop"] is not None or self.current_turn["interrupted"]:
                 self.turn_count += 1
                 self.current_turn = self._create_empty_turn(self.turn_count)
-                self.bot_text_buffer = [] # Clear bot buffer for new turn
+                self.user_text_buffer = []  # Clear user buffer for new turn
+                self.bot_text_buffer = []  # Clear bot buffer for new turn
 
             if self.current_turn["user_start"] is None:
                 self.current_turn["user_start"] = time_sec
+                self.user_text_buffer = []  # Reset buffer at the start of speaking
                 
                 # Calculate Latency
                 if self.last_bot_stop_time is not None:
@@ -82,20 +80,20 @@ class SessionObserver(BaseObserver):
                 else:
                     self.current_turn["latency_from_last_turn"] = 0.0
 
-                print(f"\n🟢 [TURN {self.turn_count} OPENED]")
+                print(f"\n[TURN {self.turn_count} OPENED]")
+
+        # User Transcript (STT) -> Accumulate chunks
+        elif isinstance(frame, TranscriptionFrame):
+            if frame.text and frame.text.strip():
+                self.user_text_buffer.append(frame.text.strip())
+                self.current_turn["user_transcript"] = " ".join(self.user_text_buffer)
 
         # User Stops Speaking
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self.current_turn["user_stop"] = time_sec
+            if self.user_text_buffer:
+                self.current_turn["user_transcript"] = " ".join(self.user_text_buffer)
 
-        # User Transcript (STT)
-        elif isinstance(frame, TranscriptionFrame):
-            # We assume this frame belongs to the currently open turn
-            self.current_turn["user_transcript"] = frame.text
-
-        # =========================================================
-        # 2. BOT TEXT GENERATION (LLM)
-        # =========================================================
         
         # Start of LLM Response -> Clear Buffer
         elif isinstance(frame, LLMFullResponseStartFrame):
@@ -109,10 +107,6 @@ class SessionObserver(BaseObserver):
         elif isinstance(frame, LLMFullResponseEndFrame):
             full_text = "".join(self.bot_text_buffer)
             self.current_turn["bot_transcript"] = full_text
-
-        # =========================================================
-        # 3. BOT AUDIO & TURN COMPLETION
-        # =========================================================
 
         # Bot Starts Speaking (Audio)
         elif isinstance(frame, BotStartedSpeakingFrame):
@@ -147,21 +141,21 @@ class SessionObserver(BaseObserver):
                 self._finalize_turn(reason="Interrupted by User")
 
     def _finalize_turn(self, reason):
-        """Prints summary and saves to file."""
+        # Prints summary and saves to file.
         print(80 * "-")
-        print(f"🏁 TURN {self.turn_count} SUMMARY | Status: {reason}")
-        print(f"🗣️  User: {self.current_turn['user_transcript']}")
-        print(f"🤖 Bot:  {self.current_turn['bot_transcript']}")
-        print(f"⏱️  Latency: {self.current_turn['latency_from_last_turn']}s")
+        print(f"TURN {self.turn_count} SUMMARY | Status: {reason}")
+        print(f"User: {self.current_turn['user_transcript']}")
+        print(f"Bot:  {self.current_turn['bot_transcript']}")
+        print(f"Latency: {self.current_turn['latency_from_last_turn']}s")
         print(80 * "-")
         
         self._save_to_json()
 
     def _save_to_json(self):
-        """Appends current turn to history and writes to file."""
+        # Appends current turn to history and writes to file.
         self.turn_history.append(self.current_turn.copy())
         try:
             with open(self.filename, "w", encoding='utf-8') as f:
                 json.dump(self.turn_history, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"⚠️ Error saving metrics: {e}")
+            print(f"Error saving metrics: {e}")  

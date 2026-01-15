@@ -35,7 +35,7 @@ class SessionObserver(BaseObserver):
         self.last_bot_stop_time = None 
         
         # Transcript Buffers
-        self.user_text_buffer = []  # <--- Accumulate user transcripts
+        self.user_text_buffer = []
         self.bot_text_buffer = [] 
         
         # Initialize First Turn
@@ -47,10 +47,10 @@ class SessionObserver(BaseObserver):
             "latency_from_last_turn": None,
             "user_start": None,
             "user_stop": None,
-            "user_transcript": "",  # <--- NEW
+            "user_transcript": "",
             "bot_start": None,
             "bot_stop": None,
-            "bot_transcript": "",   # <--- NEW
+            "bot_transcript": "",
             "interrupted": False,
             "interruption_time": None
         }
@@ -61,9 +61,6 @@ class SessionObserver(BaseObserver):
         frame = data.frame
         source = str(data.source) # Get source name (e.g., "LLM", "STT")
 
-        # =========================================================
-        # 1. USER SPEECH & TRANSCRIPTION
-        # =========================================================
         
         # User Starts Speaking -> NEW TURN
         if isinstance(frame, UserStartedSpeakingFrame):
@@ -99,9 +96,6 @@ class SessionObserver(BaseObserver):
             if self.user_text_buffer:
                 self.current_turn["user_transcript"] = " ".join(self.user_text_buffer)
 
-        # =========================================================
-        # 2. BOT TEXT GENERATION (LLM)
-        # =========================================================
         
         # Start of LLM Response -> Clear Buffer
         elif isinstance(frame, LLMFullResponseStartFrame):
@@ -115,10 +109,6 @@ class SessionObserver(BaseObserver):
         elif isinstance(frame, LLMFullResponseEndFrame):
             full_text = "".join(self.bot_text_buffer)
             self.current_turn["bot_transcript"] = full_text
-
-        # =========================================================
-        # 3. BOT AUDIO & TURN COMPLETION
-        # =========================================================
 
         # Bot Starts Speaking (Audio)
         elif isinstance(frame, BotStartedSpeakingFrame):

@@ -99,19 +99,19 @@ async def bot(runner_args: RunnerArguments):
             wf.setframerate(sample_rate)
             wf.writeframes(audio)
         
-        print(f"✅ Audio saved: {filename}")
+        print(f"Audio saved: {filename}")
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         """Start recording when client connects."""
         await audiobuffer.start_recording()
-        print("🎙️ Recording started")
+        print("Recording started")
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         """Stop recording when client disconnects - this triggers on_audio_data."""
         await audiobuffer.stop_recording()
-        print("🛑 Recording stopped")
+        print("Recording stopped")
     
     observer=LatencyObserver(filename=os.path.join(audio_dir, "conversation_metrics.json"))
     task = PipelineTask(
