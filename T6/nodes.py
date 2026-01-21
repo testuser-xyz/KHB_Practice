@@ -56,21 +56,13 @@ def create_greet_node() -> NodeConfig:
         role_messages=[
             {
                 "role": "system",
-                "content": "You are an internal decision engine. You do NOT speak. Your ONLY job is to call a function to start the scenario."
+                "content": "You are an internal router. You do not speak. Your only job is to pick the correct function to start the conversation."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """Wait for the call to connect.
-                
-                IMMEDIATELY and SILENTLY call one of these functions to start the scenario:
-                - place_order
-                - ask_info
-                - make_reservation
-                - check_status
-                
-                Pick one randomly. Do not output text. JUST CALL THE FUNCTION."""
+                "content": "Wait for the user to say hello. Then IMMEDIATELY call one of the functions (place_order, ask_info, make_reservation, check_status) to begin the scenario."
             }
         ],
         functions=[place_order_func, ask_info_func, make_reservation_func, check_status_func]
@@ -90,9 +82,9 @@ def create_order_node() -> NodeConfig:
 
     confirm_order_func = FlowsFunctionSchema(
         name="confirm_order",
-        description="Submit the list of items you want to order.",
+        description="Submits the order details to the system.",
         properties={
-            "items": {"type": "string", "description": "List of items to order"}
+            "items": {"type": "string", "description": "The list of food items ordered"}
         },
         required=["items"], 
         handler=confirm_order_handler,
@@ -100,21 +92,17 @@ def create_order_node() -> NodeConfig:
     
     return NodeConfig(
         name="order",
-        respond_immediately=True, # Bot speaks first here
+        respond_immediately=True,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer calling a restaurant. Speak naturally."
+                "content": "You are a customer calling a restaurant. You are hungry and direct."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """You want to place a food order.
-                
-                1. Speak your order naturally (e.g., "I'd like a pepperoni pizza").
-                2. IMMEDIATELY after speaking, call 'confirm_order' with the items.
-                """
+                "content": "Order a meal naturally (e.g., 'I would like a large pepperoni pizza'). call the 'confirm_order' function with the items you mentioned."
             }
         ],
         functions=[confirm_order_func],
@@ -133,10 +121,10 @@ def create_order_confirmation_node() -> NodeConfig:
 
     provide_details_func = FlowsFunctionSchema(
         name="provide_details",
-        description="Submit delivery address and payment method.",
+        description="Submits delivery and payment details.",
         properties={
-            "delivery_address": {"type": "string", "description": "Your delivery address"},
-            "payment_method": {"type": "string", "description": "Payment method (cash/card)"}
+            "delivery_address": {"type": "string", "description": "The delivery address"},
+            "payment_method": {"type": "string", "description": "Payment method (e.g. cash, card)"}
         },
         required=["delivery_address", "payment_method"],
         handler=provide_details_handler,
@@ -144,24 +132,21 @@ def create_order_confirmation_node() -> NodeConfig:
     
     return NodeConfig(
         name="order_confirmation",
-        respond_immediately=False, # FIX: Wait for user to ask for details
+        respond_immediately=False,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer calling a restaurant."
+                "content": "You are the CUSTOMER."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """You have just stated your order.
+                "content": """You just placed your order. Wait for the restaurant to respond.
                 
-                STOP SPEAKING. Wait for the restaurant to respond (e.g., confirming price or asking for address).
+                If they ask for your address or payment method, provide it naturally and call 'provide_details'.
                 
-                ONLY when they ask for details:
-                1. Provide your address and payment method naturally.
-                2. Call 'provide_details'.
-                """
+                Do not volunteer information until asked."""
             }
         ],
         functions=[provide_details_func]
@@ -171,8 +156,8 @@ def create_order_confirmation_node() -> NodeConfig:
 def create_order_details_node() -> NodeConfig:
     return NodeConfig(
         name="order_details",
-        role_messages=[{"role": "system", "content": "Customer."}],
-        task_messages=[{"role": "system", "content": "Listen to the final confirmation. Say 'Thank you' and allow the call to end."}],
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
+        task_messages=[{"role": "system", "content": "You have finished giving your details. Say 'Thank you' and hang up."}],
         functions=[],
         post_actions=[{"type": "end_conversation"}]
     )
@@ -191,9 +176,9 @@ def create_info_node() -> NodeConfig:
 
     ask_question_func = FlowsFunctionSchema(
         name="ask_question",
-        description="Log the question you asked.",
+        description="Logs the specific question asked.",
         properties={
-            "question": {"type": "string", "description": "The question asked"}
+            "question": {"type": "string", "description": "The question content"}
         },
         required=["question"], 
         handler=ask_question_handler,
@@ -201,18 +186,17 @@ def create_info_node() -> NodeConfig:
     
     return NodeConfig(
         name="info",
-        respond_immediately=True, # Bot speaks first here
+        respond_immediately=True,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer calling a restaurant. Speak naturally."
+                "content": "You are a customer calling a restaurant."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """Pick ONE question (e.g., hours, vegetarian options).
-                Ask it naturally, then call 'ask_question'."""
+                "content": "Ask one specific question about the restaurant (e.g., 'Do you have vegan options?'). Call 'ask_question' with your query."
             }
         ],
         functions=[ask_question_func],
@@ -223,15 +207,9 @@ def create_info_node() -> NodeConfig:
 def create_info_response_node() -> NodeConfig:
     return NodeConfig(
         name="info_response",
-        respond_immediately=False, # FIX: Wait for answer
-        role_messages=[{"role": "system", "content": "Customer."}],
-        task_messages=[
-            {
-                "role": "system", 
-                "content": """You just asked a question. STOP SPEAKING. 
-                Wait for the restaurant to answer. Once answered, say 'Thank you' and end call."""
-            }
-        ],
+        respond_immediately=False,
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
+        task_messages=[{"role": "system", "content": "Listen to the answer. Say 'Thanks, that helps' and hang up."}],
         functions=[],
         post_actions=[{"type": "end_conversation"}]
     )
@@ -253,7 +231,7 @@ def create_reservation_node() -> NodeConfig:
 
     request_booking_func = FlowsFunctionSchema(
         name="request_booking",
-        description="Log the reservation request details.",
+        description="Logs the reservation request.",
         properties={
             "date": {"type": "string"},
             "time": {"type": "string"},
@@ -265,18 +243,17 @@ def create_reservation_node() -> NodeConfig:
     
     return NodeConfig(
         name="reservation",
-        respond_immediately=True, # Bot speaks first here
+        respond_immediately=True,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer calling a restaurant. Speak naturally."
+                "content": "You are a customer calling a restaurant."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """Request a table reservation naturally (e.g., "Table for 4 Friday at 7pm").
-                Then call 'request_booking'."""
+                "content": "Request a table reservation naturally (e.g., 'I need a table for 2 at 8pm'). Call 'request_booking' with the details."
             }
         ],
         functions=[request_booking_func],
@@ -294,7 +271,7 @@ def create_reservation_check_node() -> NodeConfig:
 
     available_func = FlowsFunctionSchema(
         name="table_available",
-        description="Call if restaurant says table is available.",
+        description="Call this if the restaurant confirms the table is available.",
         properties={}, 
         required=[], 
         handler=available_handler,
@@ -302,7 +279,7 @@ def create_reservation_check_node() -> NodeConfig:
 
     not_available_func = FlowsFunctionSchema(
         name="table_not_available",
-        description="Call if restaurant says table is NOT available.",
+        description="Call this if the restaurant says the table is NOT available.",
         properties={}, 
         required=[], 
         handler=not_available_handler,
@@ -310,21 +287,20 @@ def create_reservation_check_node() -> NodeConfig:
     
     return NodeConfig(
         name="reservation_check",
-        respond_immediately=False, # FIX: Wait for user to check schedule
+        respond_immediately=False,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer."
+                "content": "You are the CUSTOMER."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """You just requested a table. STOP SPEAKING.
+                "content": """Listen to the response.
                 
-                Listen to the restaurant's response.
-                - If they say "Yes/Available": Call 'table_available'.
-                - If they say "No/Full/Booked": Call 'table_not_available'.
+                - If they say 'Yes' or 'Available': Call 'table_available'.
+                - If they say 'No' or 'Full': Call 'table_not_available'.
                 """
             }
         ],
@@ -339,7 +315,7 @@ def create_reservation_booking_node() -> NodeConfig:
 
     confirm_booking_func = FlowsFunctionSchema(
         name="confirm_booking",
-        description="Confirm the booking.",
+        description="Finalizes the booking.",
         properties={}, 
         required=[], 
         handler=confirm_booking_handler,
@@ -347,14 +323,12 @@ def create_reservation_booking_node() -> NodeConfig:
     
     return NodeConfig(
         name="reservation_booking",
-        respond_immediately=True, # Bot responds to "Available"
-        role_messages=[{"role": "system", "content": "Customer."}],
+        respond_immediately=True,
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
         task_messages=[
             {
                 "role": "system",
-                "content": """The table is available.
-                Say: "Perfect! Please book that for me."
-                Then call 'confirm_booking'."""
+                "content": "The table is available. Say 'Great, please book it.' and call 'confirm_booking'."
             }
         ],
         functions=[confirm_booking_func],
@@ -374,7 +348,7 @@ def create_reservation_suggest_node() -> NodeConfig:
 
     accept_alternative_func = FlowsFunctionSchema(
         name="accept_alternative",
-        description="Accept alternative time.",
+        description="Accepts the new time proposed.",
         properties={"new_time": {"type": "string"}},
         required=["new_time"], 
         handler=accept_alternative_handler,
@@ -382,7 +356,7 @@ def create_reservation_suggest_node() -> NodeConfig:
 
     decline_alternative_func = FlowsFunctionSchema(
         name="decline_alternative",
-        description="Decline alternative.",
+        description="Declines the offer.",
         properties={}, 
         required=[], 
         handler=decline_alternative_handler,
@@ -390,14 +364,14 @@ def create_reservation_suggest_node() -> NodeConfig:
     
     return NodeConfig(
         name="reservation_suggest",
-        respond_immediately=True, # Bot responds to "Not Available"
-        role_messages=[{"role": "system", "content": "Customer."}],
+        respond_immediately=True,
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
         task_messages=[
             {
                 "role": "system",
-                "content": """The restaurant suggested a new time.
-                - To accept: Say "That works" and call 'accept_alternative'.
-                - To decline: Say "No thanks" and call 'decline_alternative'."""
+                "content": """The restaurant offered a different time.
+                - To accept: Say 'That works' and call 'accept_alternative'.
+                - To decline: Say 'No thanks' and call 'decline_alternative'."""
             }
         ],
         functions=[accept_alternative_func, decline_alternative_func],
@@ -408,8 +382,8 @@ def create_reservation_suggest_node() -> NodeConfig:
 def create_reservation_confirm_node() -> NodeConfig:
     return NodeConfig(
         name="reservation_confirm",
-        role_messages=[{"role": "system", "content": "Customer."}],
-        task_messages=[{"role": "system", "content": "Confirm details. Say 'Thank you' and allow the call to end."}],
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
+        task_messages=[{"role": "system", "content": "Say 'Thank you, see you then' and hang up."}],
         functions=[],
         post_actions=[{"type": "end_conversation"}]
     )
@@ -418,8 +392,8 @@ def create_reservation_confirm_node() -> NodeConfig:
 def create_reservation_end_node() -> NodeConfig:
     return NodeConfig(
         name="reservation_end",
-        role_messages=[{"role": "system", "content": "Customer."}],
-        task_messages=[{"role": "system", "content": "Politely say goodbye and allow the call to end."}],
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
+        task_messages=[{"role": "system", "content": "Say 'Okay, maybe next time, bye' and hang up."}],
         functions=[],
         post_actions=[{"type": "end_conversation"}]
     )
@@ -438,7 +412,7 @@ def create_status_node() -> NodeConfig:
 
     ask_status_func = FlowsFunctionSchema(
         name="ask_status",
-        description="Log status check.",
+        description="Logs the status check.",
         properties={"order_id": {"type": "string"}},
         required=[], 
         handler=ask_status_handler,
@@ -446,18 +420,17 @@ def create_status_node() -> NodeConfig:
     
     return NodeConfig(
         name="status",
-        respond_immediately=True, # Bot speaks first here
+        respond_immediately=True,
         role_messages=[
             {
                 "role": "system",
-                "content": "You are a customer calling a restaurant. Speak naturally."
+                "content": "You are a customer calling a restaurant."
             }
         ],
         task_messages=[
             {
                 "role": "system",
-                "content": """Ask about your order status naturally (e.g., "Where is my order?").
-                Then call 'ask_status'."""
+                "content": "Ask 'Where is my order?'. Call 'ask_status'."
             }
         ],
         functions=[ask_status_func],
@@ -468,9 +441,8 @@ def create_status_node() -> NodeConfig:
 def create_status_update_node() -> NodeConfig:
     return NodeConfig(
         name="status_update",
-        respond_immediately=False, # FIX: Wait for answer
-        role_messages=[{"role": "system", "content": "Customer."}],
-        task_messages=[{"role": "system", "content": "You just asked about status. STOP SPEAKING. Wait for the update."}],
+        role_messages=[{"role": "system", "content": "You are the CUSTOMER."}],
+        task_messages=[{"role": "system", "content": "Listen to the update. Say 'Okay thanks' and hang up."}],
         functions=[],
         post_actions=[{"type": "end_conversation"}]
     )

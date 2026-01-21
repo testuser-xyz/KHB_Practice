@@ -85,10 +85,9 @@ async def bot(runner_args: RunnerArguments):
     context = LLMContext(messages)
     context_aggregator = LLMContextAggregatorPair(context)
     
-    # --- TEXT PROCESSOR SETUP ---
     text_filter = PatternPairAggregator()
     
-    # Filter 1: Catch Markdown code blocks
+    #Catch Markdown code blocks
     text_filter.add_pattern(
         type="code_block",
         start_pattern="```",
@@ -96,7 +95,7 @@ async def bot(runner_args: RunnerArguments):
         action=MatchAction.AGGREGATE
     )
     
-    # Filter 2: Catch standalone JSON objects
+    #Catch standalone JSON objects
     text_filter.add_pattern(
         type="json_object",
         start_pattern="{",
@@ -104,7 +103,7 @@ async def bot(runner_args: RunnerArguments):
         action=MatchAction.AGGREGATE
     )
 
-    # Filter 3: Catch XML-style function hallucinations (The specific fix for your error)
+    #Catch XML-style function hallucinations
     text_filter.add_pattern(
         type="xml_function",
         start_pattern="<function",
@@ -113,7 +112,6 @@ async def bot(runner_args: RunnerArguments):
     )
 
     llm_text_processor = LLMTextProcessor(text_aggregator=text_filter)
-    # ----------------------------
     
     # RECORDING SETUP
     session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
