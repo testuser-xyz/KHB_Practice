@@ -110,6 +110,14 @@ async def bot(runner_args: RunnerArguments):
         end_pattern="</function>",
         action=MatchAction.AGGREGATE
     )
+    
+    # Catch orphaned closing tags
+    text_filter.add_pattern(
+        type="orphaned_tag",
+        start_pattern="</",
+        end_pattern=">",
+        action=MatchAction.AGGREGATE
+    )
 
     llm_text_processor = LLMTextProcessor(text_aggregator=text_filter)
     
