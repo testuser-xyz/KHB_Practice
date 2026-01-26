@@ -10,6 +10,7 @@ dependencies = [
     "loguru>=0.7.3",
     "onnxruntime>=1.23.2",
     "openai>=2.14.0",
+    "pipecat-ai-flows>=0.0.22",
     "pipecat-ai-small-webrtc-prebuilt>=2.0.0",
     "pipecat-ai[cartesia,deepgram,groq,local-smart-turn-v3,openai,silero,webrtc]>=0.0.98",
     "python-dotenv>=1.2.1",
